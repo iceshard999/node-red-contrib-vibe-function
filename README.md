@@ -13,9 +13,7 @@ mkdir -p node-red-contrib-vibe-function
 cp vibe-function.* node-red-contrib-vibe-function/
 ln -s ../node-red-contrib-vibe-function node_modules/node-red-contrib-vibe-function
 
-# 设置 API Key（二选一）
-export DEEPSEEK_API_KEY=sk-xxxxx   # 环境变量
-# 或在编辑面板中创建 vibe-function-config 配置节点
+# 在编辑面板中创建 vibe-function-config 配置节点，填入 API Key
 
 # 重启 Node-RED
 node-red
@@ -87,7 +85,7 @@ msg.payload = "YYYY-MM-DD HH:mm:ss" formatted time string
 | Model | `deepseek-v4-pro[1m]` | 模型名称 |
 | API Key | *(必填)* | 凭证，加密存储 |
 
-可创建多个配置节点供不同节点使用。未配置时回退到 `DEEPSEEK_API_KEY` 环境变量。
+可创建多个配置节点供不同节点使用。API Key 加密存储在 Node-RED 凭证文件中。
 
 ## 兼容的 API 提供商
 
