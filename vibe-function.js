@@ -363,6 +363,8 @@ ${node.func}
                         // comms 不可用也不影响运行时回写
                     }
                     node.warn('[Schema] 已自动推导输入 schema');
+                } else {
+                    node.warn('[Schema] 推导结果为空，已跳过');
                 }
             } catch (err) {
                 node.warn('[Schema] 自动推导失败: ' + err.message);
@@ -492,12 +494,15 @@ ${node.func}
             processMessage = function(msg, send, done) {
                 // 空白节点(无代码 + 无 inputSchema):直通输出,并按需后台推导 input schema
                 if (isBlankNode(node.func, node.inputSchema)) {
+                    const hasConfig = !!(node.configRef && RED.nodes.getNode(node.configRef));
+                    const fireGen = shouldGenerateInputSchema(node.func, node.inputSchema, hasConfig) && !node._schemaGenerating;
+                    // 直通输出前先快照,避免下游同步改写 msg 影响后台推导
+                    const sampleMsg = fireGen ? RED.util.cloneMessage(msg) : null;
                     sendResults(node, send, msg, false);
                     done();
-                    const hasConfig = !!(node.configRef && RED.nodes.getNode(node.configRef));
-                    if (shouldGenerateInputSchema(node.func, node.inputSchema, hasConfig) && !node._schemaGenerating) {
+                    if (fireGen) {
                         node._schemaGenerating = true;
-                        generateInputSchema(msg);
+                        generateInputSchema(sampleMsg);
                     }
                     return;
                 }
