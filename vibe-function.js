@@ -9,7 +9,7 @@ module.exports = function(RED) {
     async function callLLM(configNodeId, promptContent) {
         let baseUrl = 'https://api.deepseek.com/anthropic';
         let model = 'deepseek-v4-pro[1m]';
-        let apiKey = process.env.DEEPSEEK_API_KEY;
+        let apiKey;
         let apiFormat = 'anthropic';
 
         if (configNodeId) {
@@ -291,7 +291,7 @@ Reply EXACTLY "YES" if the output matches the schema, or "NO: <reason>" if it do
 
         async function autoFixCode(reason, inputMsg) {
             if (!node.debug) return null;
-            const canCall = !!(process.env.DEEPSEEK_API_KEY || (node.configRef && RED.nodes.getNode(node.configRef)));
+            const canCall = !!(node.configRef && RED.nodes.getNode(node.configRef));
             if (!canCall) return null;
             try {
                 const prompt = `你是一个 Node-RED function 节点调试修复器。
@@ -456,9 +456,8 @@ ${node.func}
             // Debug 启动检查
             if (node.debug) {
                 const hasConfig = !!(node.configRef && RED.nodes.getNode(node.configRef));
-                const hasEnvKey = !!process.env.DEEPSEEK_API_KEY;
-                if (!hasConfig && !hasEnvKey) {
-                    node.warn('[Debug] 未配置 API Key，自动修复不会生效。请在 Coding Tab 中选择 API 配置或设置 DEEPSEEK_API_KEY 环境变量');
+                if (!hasConfig) {
+                    node.warn('[Debug] 未选择 API 配置，自动修复不会生效。请在 Coding Tab 中选择 API 配置');
                 }
             }
 

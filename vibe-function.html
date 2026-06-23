@@ -410,3 +410,49 @@
 
     </div>
 </script>
+
+<script type="text/html" data-help-name="vibe-function">
+    <h3>Vibe Function</h3>
+    <p>AI 驱动的 Function 节点。用自然语言描述需求，自动生成、校验、修复 JavaScript 代码。</p>
+
+    <h4>Tabs</h4>
+    <dl class="node-help">
+        <dt>Coding</dt><dd>核心面板：选择 API 配置、输入需求描述、一键生成代码。</dd>
+        <dt>Schema</dt><dd>定义输入/输出 msg 结构。提供属性下拉快速添加，会传给 LLM 以生成更精准的代码。</dd>
+        <dt>Setup</dt><dd>Outputs 数量、Timeout、外部模块导入（如 lodash、moment）。</dd>
+        <dt>On Start</dt><dd>初始化代码，节点启动时执行一次。可初始化变量、建立连接，可用 <code>node.send()</code>。</dd>
+        <dt>On Message</dt><dd>消息处理函数 (<code>async function</code>)。每次收到 msg 时执行，可用 <code>return msg</code> / <code>node.send(msg)</code> / <code>await</code>。</dd>
+        <dt>On Stop</dt><dd>清理代码，节点停止时执行。清理资源、关闭连接。不可使用 <code>node.send()</code>。</dd>
+    </dl>
+
+    <h4>Debug 模式</h4>
+    <p>节点上的 🐛/</> 按钮开启 Debug：</p>
+    <ul>
+        <li>代码异常 → 自动 LLM 修复并重试</li>
+        <li>输出校验 → 对照 Output Schema，不符合则自动修复</li>
+        <li>修复后代码同步到编辑器（即时生效，无需部署）</li>
+    </ul>
+
+    <h4>沙箱环境</h4>
+    <ul>
+        <li><code>node.send(msg)</code> / <code>node.done()</code></li>
+        <li><code>context</code> / <code>flow</code> / <code>global</code></li>
+        <li><code>env.get("VAR")</code></li>
+        <li><code>util</code> / <code>Buffer</code> / <code>Date</code></li>
+        <li><code>setTimeout</code> / <code>setInterval</code>（自动清理）</li>
+    </ul>
+
+    <h4>API 配置</h4>
+    <p>使用 <code>vibe-function-config</code> 配置节点。支持 Anthropic Messages 和 OpenAI Chat Completions 两种格式。</p>
+</script>
+
+<script type="text/html" data-help-name="vibe-function-config">
+    <h3>Vibe Function API Config</h3>
+    <p>Vibe Function 节点的 API 连接配置。</p>
+    <dl class="node-help">
+        <dt>API 格式</dt><dd>Anthropic Messages 或 OpenAI Chat Completions。</dd>
+        <dt>Base URL</dt><dd>API 基础地址，不含路径。</dd>
+        <dt>Model</dt><dd>模型名称，如 <code>deepseek-v4-pro[1m]</code>。</dd>
+        <dt>API Key</dt><dd>加密存储的 API 凭证。</dd>
+    </dl>
+</script>
