@@ -1,6 +1,6 @@
 {
   "name": "node-red-contrib-vibe-function",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "AI-powered Node-RED function node — generate, validate, and self-heal code with natural language",
   "license": "MIT",
   "scripts": {
