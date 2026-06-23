@@ -3,6 +3,9 @@
   "version": "0.1.1",
   "description": "AI-powered Node-RED function node — generate, validate, and self-heal code with natural language",
   "license": "MIT",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  },
   "keywords": [
     "node-red",
     "node-red-contrib",
