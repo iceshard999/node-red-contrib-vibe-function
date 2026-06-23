@@ -194,6 +194,17 @@
                     });
                 }
             });
+
+            // ========== 自动推导 input schema 推送 ==========
+            RED.comms.subscribe('vibe-function:schema-generated', function(topic, data) {
+                if (data && data.nodeId === that.id) {
+                    $('#node-input-inputSchema').val(data.inputSchema);
+                    RED.notify('🧩 已自动推导输入 schema 并更新编辑器', {
+                        type: 'success',
+                        timeout: 5000
+                    });
+                }
+            });
         },
         oneditsave: function() {
             var libs = [];
