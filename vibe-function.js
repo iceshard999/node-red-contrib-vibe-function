@@ -1,5 +1,6 @@
 const vm = require('vm');
 const util = require('util');
+const { isBlankNode, shouldGenerateInputSchema, buildSchemaPrompt, cleanSchemaResult } = require('./lib/schema-helpers');
 
 module.exports = function(RED) {
     "use strict";
@@ -343,6 +344,33 @@ ${node.func}
             }
         }
 
+        async function generateInputSchema(sampleMsg) {
+            try {
+                const prompt = buildSchemaPrompt(sampleMsg);
+                const raw = await callLLM(node.configRef, prompt);
+                const schema = cleanSchemaResult(raw);
+                if (schema) {
+                    node.inputSchema = schema;
+                    if (node._config) {
+                        node._config.inputSchema = schema;
+                    }
+                    try {
+                        RED.comms.publish('vibe-function:schema-generated', {
+                            nodeId: node.id,
+                            inputSchema: schema
+                        }, false);
+                    } catch (e) {
+                        // comms 不可用也不影响运行时回写
+                    }
+                    node.warn('[Schema] 已自动推导输入 schema');
+                }
+            } catch (err) {
+                node.warn('[Schema] 自动推导失败: ' + err.message);
+            } finally {
+                node._schemaGenerating = false;
+            }
+        }
+
         function extractFirstOutputMsg(results) {
             if (!results) return null;
             // results 可能是: msg, [msg], [[msg]], [[msg1, msg2]]
@@ -462,6 +490,17 @@ ${node.func}
             }
 
             processMessage = function(msg, send, done) {
+                // 空白节点(无代码 + 无 inputSchema):直通输出,并按需后台推导 input schema
+                if (isBlankNode(node.func, node.inputSchema)) {
+                    sendResults(node, send, msg, false);
+                    done();
+                    const hasConfig = !!(node.configRef && RED.nodes.getNode(node.configRef));
+                    if (shouldGenerateInputSchema(node.func, node.inputSchema, hasConfig) && !node._schemaGenerating) {
+                        node._schemaGenerating = true;
+                        generateInputSchema(msg);
+                    }
+                    return;
+                }
                 context.msg = msg;
                 context.__send__ = send;
                 context.__done__ = done;
