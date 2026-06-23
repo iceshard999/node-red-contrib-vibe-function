@@ -1,0 +1,412 @@
+<script type="text/javascript">
+    // 配置节点
+    RED.nodes.registerType('vibe-function-config', {
+        category: 'config',
+        defaults: {
+            name: { value: '' },
+            baseUrl: { value: 'https://api.deepseek.com/anthropic' },
+            model: { value: 'deepseek-v4-pro[1m]' },
+            apiFormat: { value: 'anthropic' }
+        },
+        credentials: {
+            apiKey: { type: 'text' }
+        },
+        label: function() {
+            return this.name || 'DeepSeek API';
+        }
+    });
+
+    RED.nodes.registerType('vibe-function', {
+        category: 'function',
+        color: '#fdd0a2',
+        icon: 'status.svg',
+        defaults: {
+            name: { value: '' },
+            func: { value: '\nreturn msg;' },
+            outputs: { value: 1 },
+            timeout: { value: 0 },
+            initialize: { value: '' },
+            finalize: { value: '' },
+            libs: { value: [] },
+            description: { value: '' },
+            debug: { value: false },
+            configRef: { value: '', type: 'vibe-function-config', required: false },
+            inputSchema: { value: '' },
+            outputSchema: { value: '' }
+        },
+        inputs: 1,
+        outputs: 1,
+        label: function() {
+            return this.name || 'vibe-function';
+        },
+        button: {
+            toggle: 'debug',
+            label: function() {
+                return this.debug ? 'debug: on' : 'debug: off';
+            },
+            icon: function() {
+                return this.debug ? 'fa fa-bug' : 'fa fa-code';
+            },
+            onclick: function() {
+                var node = this;
+                // toggle 已翻转 node.debug，直接同步到运行时
+                $.ajax({
+                    url: '/vibe-function/debug-toggle/' + node.id,
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ debug: node.debug }),
+                    error: function() {
+                        node.debug = !node.debug; // revert
+                        RED.notify('Debug 切换失败', 'error');
+                        RED.view.redraw();
+                    }
+                });
+            }
+        },
+        oneditprepare: function() {
+            var that = this;
+            var tabs = RED.tabs.create({
+                id: 'vibe-func-tabs',
+                onchange: function(tab) {
+                    $('#vibe-func-tabs-content').children().hide();
+                    $('#' + tab.id).show();
+                }
+            });
+
+            tabs.addTab({ id: 'vibe-tab-coding',    iconClass: 'fa fa-magic',     label: 'Coding' });
+            tabs.addTab({ id: 'vibe-tab-schema',    iconClass: 'fa fa-list-alt',  label: 'Schema' });
+            tabs.addTab({ id: 'vibe-tab-setup',     iconClass: 'fa fa-cog',       label: 'Setup' });
+            tabs.addTab({ id: 'vibe-tab-init',      iconClass: 'fa fa-play',      label: 'On Start' });
+            tabs.addTab({ id: 'vibe-tab-func',      iconClass: 'fa fa-code',      label: 'On Message' });
+            tabs.addTab({ id: 'vibe-tab-finalize',  iconClass: 'fa fa-stop',      label: 'On Stop' });
+
+            tabs.activateTab('vibe-tab-coding');
+
+            // ========== Module management ==========
+            var libsList = $('#node-input-libs-container').editableList({
+                addItem: function(container, i, opt) {
+                    var row = $('<div/>').css({
+                        'display': 'flex', 'gap': '4px', 'margin-bottom': '4px'
+                    }).appendTo(container);
+                    $('<input/>', {
+                        type: 'text', placeholder: 'module name (e.g. lodash)',
+                        class: 'node-input-libs-module'
+                    }).css({ flex: '1' }).appendTo(row).val(opt.module || '');
+                    $('<input/>', {
+                        type: 'text', placeholder: 'var name (e.g. _)',
+                        class: 'node-input-libs-var'
+                    }).css({ flex: '1' }).appendTo(row).val(opt.var || '');
+                },
+                removable: true
+            });
+            var libs = that.libs || [];
+            for (var i = 0; i < libs.length; i++) {
+                libsList.editableList('addItem', libs[i]);
+            }
+
+            // ========== Spinners ==========
+            $('#node-input-outputs').spinner({ min: 1, max: 500 });
+            $('#node-input-timeout').spinner({ min: 0, max: 4294967 });
+
+            // ========== 从运行时加载最新代码（Debug 修复后的） ==========
+            $.getJSON('/vibe-function/code/' + that.id, function(data) {
+                if (data.func && data.func !== $('#node-input-func').val()) {
+                    $('#node-input-func').val(data.func);
+                }
+                if (data.initialize && data.initialize !== $('#node-input-initialize').val()) {
+                    $('#node-input-initialize').val(data.initialize);
+                }
+                if (data.finalize && data.finalize !== $('#node-input-finalize').val()) {
+                    $('#node-input-finalize').val(data.finalize);
+                }
+            });
+
+            // ========== Schema 属性快速添加 ==========
+            function setupSchemaAdd(selectId, inputId, btnId, textareaId) {
+                $('#' + btnId).on('click', function() {
+                    var prop = $('#' + inputId).val().trim();
+                    if (!prop) {
+                        prop = $('#' + selectId).val();
+                    }
+                    if (!prop) return;
+                    var ta = $('#' + textareaId);
+                    var cur = ta.val().trim();
+                    var line = prop + ' = ';
+                    ta.val(cur ? cur + '\n' + line : line);
+                    $('#' + inputId).val('');
+                    $('#' + selectId).prop('selectedIndex', 0);
+                });
+            }
+            setupSchemaAdd('vibe-input-prop-select', 'vibe-input-custom-prop', 'vibe-input-add-btn', 'node-input-inputSchema');
+            setupSchemaAdd('vibe-output-prop-select', 'vibe-output-custom-prop', 'vibe-output-add-btn', 'node-input-outputSchema');
+
+            // ========== LLM Code Generation ==========
+            $('#vibe-generate-btn').on('click', function() {
+                var desc = $('#node-input-description').val();
+                if (!desc) {
+                    $('#vibe-status').text('请先填写描述');
+                    return;
+                }
+                var configNodeId = $('#node-input-configRef').val();
+                var inputSchema = $('#node-input-inputSchema').val();
+                var outputSchema = $('#node-input-outputSchema').val();
+
+                $('#vibe-status').text('生成中...');
+                $('#vibe-generate-btn').prop('disabled', true);
+
+                $.ajax({
+                    url: '/vibe-function/generate',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        description: desc,
+                        configNodeId: configNodeId,
+                        inputSchema: inputSchema,
+                        outputSchema: outputSchema
+                    }),
+                    success: function(res) {
+                        if (res.name)        $('#node-input-name').val(res.name);
+                        if (res.initCode)   $('#node-input-initialize').val(res.initCode);
+                        if (res.funcCode)   $('#node-input-func').val(res.funcCode);
+                        if (res.finalizeCode) $('#node-input-finalize').val(res.finalizeCode);
+                        var parts = [];
+                        if (res.initCode)   parts.push('On Start');
+                        if (res.funcCode)   parts.push('On Message');
+                        if (res.finalizeCode) parts.push('On Stop');
+                        $('#vibe-status').text('已生成 → ' + parts.join(' + '));
+                    },
+                    error: function(err) {
+                        $('#vibe-status').text('生成失败: ' + err.responseText);
+                    },
+                    complete: function() {
+                        $('#vibe-generate-btn').prop('disabled', false);
+                    }
+                });
+            });
+
+            // ========== Debug 自动修复代码推送 ==========
+            RED.comms.subscribe('vibe-function:code-fixed', function(topic, data) {
+                if (data && data.nodeId === that.id) {
+                    $('#node-input-func').val(data.func);
+                    RED.notify('🛠️ Debug 模式已自动修复代码并更新编辑器', {
+                        type: 'success',
+                        timeout: 5000
+                    });
+                }
+            });
+        },
+        oneditsave: function() {
+            var libs = [];
+            $('#node-input-libs-container').editableList('items').each(function() {
+                var item = $(this);
+                var mod = item.find('.node-input-libs-module').val();
+                var vname = item.find('.node-input-libs-var').val();
+                if (mod && vname) libs.push({ module: mod, var: vname });
+            });
+            this.libs = libs;
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="vibe-function-config">
+    <div class="form-row">
+        <label for="node-config-input-name"><i class="fa fa-tag"></i> 名称</label>
+        <input type="text" id="node-config-input-name" placeholder="DeepSeek API">
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-apiFormat"><i class="fa fa-plug"></i> API 格式</label>
+        <select id="node-config-input-apiFormat" style="width: calc(100% - 105px);">
+            <option value="anthropic">Anthropic Messages</option>
+            <option value="openai">OpenAI Chat Completions</option>
+        </select>
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-baseUrl"><i class="fa fa-globe"></i> Base URL</label>
+        <input type="text" id="node-config-input-baseUrl" placeholder="https://api.deepseek.com/anthropic">
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-model"><i class="fa fa-cube"></i> Model</label>
+        <input type="text" id="node-config-input-model" placeholder="deepseek-v4-pro[1m]">
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-apiKey"><i class="fa fa-key"></i> API Key</label>
+        <input type="password" id="node-config-input-apiKey" placeholder="sk-...">
+    </div>
+</script>
+
+<script type="text/html" data-template-name="vibe-function">
+    <style>
+        .vibe-code-area {
+            width: 100%;
+            font-family: 'Menlo', 'Consolas', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            tab-size: 4;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        .vibe-full-row {
+            clear: both;
+        }
+        .vibe-full-row > label {
+            display: block;
+            width: 100% !important;
+            float: none;
+            margin-bottom: 4px;
+        }
+        .vibe-full-row input[type=text],
+        .vibe-full-row textarea,
+        .vibe-full-row select {
+            width: 100% !important;
+            box-sizing: border-box;
+        }
+        .vibe-modules-row { margin-bottom: 0; }
+    </style>
+
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> 名称</label>
+        <input type="text" id="node-input-name" style="width: calc(100% - 105px);">
+    </div>
+
+    <div class="form-row" style="margin-bottom: 0;">
+        <ul style="min-width: 500px; margin-bottom: 15px;" id="vibe-func-tabs"></ul>
+    </div>
+
+    <div id="vibe-func-tabs-content" style="min-height: calc(100% - 95px);">
+
+        <!-- Tab: Setup -->
+        <div id="vibe-tab-setup" style="display:none;">
+            <div class="form-row">
+                <label for="node-input-outputs"><i class="fa fa-random"></i> Outputs</label>
+                <input id="node-input-outputs" style="width: 60px;" value="1">
+            </div>
+            <div class="form-row">
+                <label for="node-input-timeout"><i class="fa fa-clock-o"></i> Timeout (s)</label>
+                <input id="node-input-timeout" style="width: 60px;" placeholder="0">
+            </div>
+            <div class="form-row vibe-modules-row">
+                <label><i class="fa fa-cubes"></i> 模块</label>
+            </div>
+            <div class="form-row vibe-full-row">
+                <ol id="node-input-libs-container" style="min-height: 80px;"></ol>
+            </div>
+        </div>
+
+        <!-- Tab: Schema -->
+        <div id="vibe-tab-schema" style="display:none;">
+            <!-- Input Schema -->
+            <div class="form-row vibe-full-row">
+                <label>Input Schema</label>
+                <div style="font-size:11px;color:#888;margin-bottom:4px;">
+                    描述输入 msg 对象的结构，会用于代码生成
+                </div>
+                <div style="display:flex;gap:4px;margin-bottom:4px;">
+                    <select id="vibe-input-prop-select" style="flex:1;">
+                        <option value="msg.payload">msg.payload</option>
+                        <option value="msg.topic">msg.topic</option>
+                        <option value="msg.qos">msg.qos</option>
+                        <option value="msg.retain">msg.retain</option>
+                        <option value="msg.error">msg.error</option>
+                        <option value="msg.status">msg.status</option>
+                        <option value="msg.headers">msg.headers</option>
+                        <option value="msg.params">msg.params</option>
+                        <option value="msg.req">msg.req</option>
+                        <option value="msg.res">msg.res</option>
+                        <option value="msg.cookies">msg.cookies</option>
+                        <option value="msg.filename">msg.filename</option>
+                        <option value="msg.ip">msg.ip</option>
+                        <option value="msg._msgid">msg._msgid</option>
+                    </select>
+                    <input type="text" id="vibe-input-custom-prop" placeholder="自定义属性..." style="flex:1;">
+                    <button id="vibe-input-add-btn" class="red-ui-button red-ui-button-small" style="white-space:nowrap;">+ 添加</button>
+                </div>
+                <textarea id="node-input-inputSchema" class="vibe-code-area" rows="6"
+                    placeholder="msg.payload = number (timestamp in ms)&#10;msg.topic = device id&#10;msg.status = device status (&quot;on&quot; | &quot;off&quot;)"></textarea>
+            </div>
+            <!-- Output Schema -->
+            <div class="form-row vibe-full-row">
+                <label>Output Schema</label>
+                <div style="font-size:11px;color:#888;margin-bottom:4px;">
+                    描述输出 msg 对象的结构
+                </div>
+                <div style="display:flex;gap:4px;margin-bottom:4px;">
+                    <select id="vibe-output-prop-select" style="flex:1;">
+                        <option value="msg.payload">msg.payload</option>
+                        <option value="msg.topic">msg.topic</option>
+                        <option value="msg.qos">msg.qos</option>
+                        <option value="msg.retain">msg.retain</option>
+                        <option value="msg.error">msg.error</option>
+                        <option value="msg.status">msg.status</option>
+                        <option value="msg.headers">msg.headers</option>
+                        <option value="msg.params">msg.params</option>
+                        <option value="msg.res">msg.res</option>
+                        <option value="msg.filename">msg.filename</option>
+                    </select>
+                    <input type="text" id="vibe-output-custom-prop" placeholder="自定义属性..." style="flex:1;">
+                    <button id="vibe-output-add-btn" class="red-ui-button red-ui-button-small" style="white-space:nowrap;">+ 添加</button>
+                </div>
+                <textarea id="node-input-outputSchema" class="vibe-code-area" rows="6"
+                    placeholder="msg.payload = formatted time string&#10;msg.topic = same as input"></textarea>
+            </div>
+        </div>
+
+        <!-- Tab: Coding (LLM code generation) -->
+        <div id="vibe-tab-coding" style="display:none;">
+            <div class="form-row vibe-full-row">
+                <label for="node-input-configRef">API 配置</label>
+                <input type="text" id="node-input-configRef">
+            </div>
+            <div class="form-row vibe-full-row">
+                <label for="node-input-description">描述</label>
+                <textarea id="node-input-description" class="vibe-code-area" rows="4"
+                    placeholder="用自然语言描述你想让这个节点做什么...&#10;&#10;可以写多行，越详细生成的代码越准确。"></textarea>
+            </div>
+            <div class="form-row">
+                <button id="vibe-generate-btn" class="red-ui-button">
+                    <i class="fa fa-magic"></i> 生成代码
+                </button>
+                <span id="vibe-status" style="margin-left:8px;font-size:12px;color:#999;"></span>
+            </div>
+            <div style="font-size:11px;color:#888;margin-top:8px;">
+                一次生成 On Start / On Message / On Stop 三个 Tab 的代码
+            </div>
+        </div>
+
+        <!-- Tab: On Start -->
+        <div id="vibe-tab-init" style="display:none;">
+            <div class="form-row vibe-full-row">
+                <label>初始化代码</label>
+                <div style="font-size:11px;color:#888;margin-bottom:4px;">
+                    节点启动时执行一次。初始化变量、建立连接等。
+                </div>
+                <textarea id="node-input-initialize" class="vibe-code-area" rows="12"
+                    placeholder="// 初始化代码，节点启动时执行&#10;context.set('count', 0);"></textarea>
+            </div>
+        </div>
+
+        <!-- Tab: On Message -->
+        <div id="vibe-tab-func" style="display:none;">
+            <div class="form-row vibe-full-row">
+                <label>消息处理函数</label>
+                <div style="font-size:11px;color:#888;margin-bottom:4px;">
+                    每次收到消息时执行。修改 <code>msg</code> 后 <code>return msg;</code>，或使用 <code>node.send(msg)</code>。
+                </div>
+                <textarea id="node-input-func" class="vibe-code-area" rows="16"
+                    style="min-height: 240px;">return msg;</textarea>
+            </div>
+        </div>
+
+        <!-- Tab: On Stop -->
+        <div id="vibe-tab-finalize" style="display:none;">
+            <div class="form-row vibe-full-row">
+                <label>清理代码</label>
+                <div style="font-size:11px;color:#888;margin-bottom:4px;">
+                    节点停止或重新部署时执行。清理资源、关闭连接。<b>此函数中不能使用 node.send()</b>。
+                </div>
+                <textarea id="node-input-finalize" class="vibe-code-area" rows="12"
+                    placeholder="// 清理代码，节点停止时执行&#10;// 注意：此函数中不能使用 node.send()"></textarea>
+            </div>
+        </div>
+
+    </div>
+</script>

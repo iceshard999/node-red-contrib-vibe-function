@@ -1,0 +1,33 @@
+{
+  "name": "node-red-contrib-vibe-function",
+  "version": "0.1.0",
+  "description": "AI-powered Node-RED function node — generate, validate, and self-heal code with natural language",
+  "license": "MIT",
+  "keywords": [
+    "node-red",
+    "node-red-contrib",
+    "function",
+    "llm",
+    "ai",
+    "deepseek",
+    "code-generation",
+    "self-healing",
+    "vibe-coding"
+  ],
+  "node-red": {
+    "nodes": {
+      "vibe-function": "vibe-function.js"
+    }
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iceshard999/node-red-contrib-vibe-function"
+  },
+  "author": {
+    "name": "Kesong Wan",
+    "email": "7632470@qq.com"
+  }
+}
