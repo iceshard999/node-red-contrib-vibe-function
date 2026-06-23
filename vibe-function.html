@@ -119,6 +119,9 @@
                 if (data.finalize && data.finalize !== $('#node-input-finalize').val()) {
                     $('#node-input-finalize').val(data.finalize);
                 }
+                if (data.inputSchema && data.inputSchema !== $('#node-input-inputSchema').val()) {
+                    $('#node-input-inputSchema').val(data.inputSchema);
+                }
             });
 
             // ========== Schema 属性快速添加 ==========

@@ -625,7 +625,8 @@ ${node.func}
             res.json({
                 func: node.func || '',
                 initialize: node.ini || '',
-                finalize: node.fin || ''
+                finalize: node.fin || '',
+                inputSchema: node.inputSchema || ''
             });
         } else {
             res.json({});
